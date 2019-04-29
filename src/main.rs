@@ -48,7 +48,7 @@ struct StateFile {
 }
 
 fn main() {
-    let matches =
+    let args =
         App::new("state")
             .version("0.1")
             .author("Crush")
@@ -68,11 +68,8 @@ fn main() {
                             .required(true)))
             .get_matches();
 
-    if let Some(args) = matches.subcommand_matches("run") {
-        run(args)
+    match Command::execute(args) {
+        Ok(monitor) => println!("Success"),
+        Err(err)    => println!("Error!"),
     }
-}
-
-fn run<'main>(args: &clap::ArgMatches<'main>) {
-    println!("Hello world")
 }
