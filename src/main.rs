@@ -63,7 +63,7 @@ fn main() {
             .about("Persist application state and handle restarts")
             .arg(
                 Arg::with_name("config")
-                    .help("A path to a file containing a configuration for state. Defaults to .state.conf.json or creates it if it doesn't exist.")
+                    .help("A path to a file containing a configuration for state.")
                     .short("c")
                     .long("config")
                     .default_value(".state.conf.json"))
