@@ -1,8 +1,16 @@
 #[macro_use] extern crate serde_derive;
 
+mod backends;
+mod config;
+mod commands;
+
+use std::default::Default;
+
 use chrono::{DateTime, Utc};
 use clap::{App, Arg, SubCommand};
 use serde_json::value::Value as JsonValue;
+
+use crate::config::{CfgErr, Config};
 
 
 #[derive(Serialize)]
@@ -54,11 +62,11 @@ fn main() {
             .author("Crush")
             .about("Persist application state and handle restarts")
             .arg(
-                Arg::with_name("file")
-                    .help("A path to a file to write states to")
-                    .short("f")
-                    .long("file")
-                    .default_value(".state.json"))
+                Arg::with_name("config")
+                    .help("A path to a file containing a configuration for state. Defaults to .state.conf.json or creates it if it doesn't exist.")
+                    .short("c")
+                    .long("config")
+                    .default_value(".state.conf.json"))
             .subcommand(
                 SubCommand::with_name("run")
                     .about("Run an application with state management")
@@ -68,7 +76,18 @@ fn main() {
                             .required(true)))
             .get_matches();
 
-    match Command::execute(args) {
+
+    let config_path = args
+        .value_of("config")
+        .unwrap_or(".state.conf.json");
+
+    let config = match Config::load(config_path) {
+        Ok(config)                    => config,
+        Err(CfgErr::PermissionDenied) => return (),
+        Err(_)                        => Config::default(),
+    };
+
+    match commands::Cmd::execute(config, &args) {
         Ok(monitor) => println!("Success"),
         Err(err)    => println!("Error!"),
     }
