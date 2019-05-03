@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::fmt;
-use std::process::Command;
+use std::process::{Child as ChildProcess, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{channel, Sender, Receiver};
+use std::thread::{self, JoinHandle};
 
 use crate::config::{CfgErr, Config};
 use crate::backends::{Backend, File};
@@ -19,11 +21,22 @@ pub enum CmdErr {
 
 #[derive(Debug)]
 pub enum Event {
-    Terminated,
+    ApplicationTerminated,
+    ApplicationRestarted,
+    StateRecorded,
+    LogRecorded,
 }
 
 pub struct Monitor {
     event_queue: Arc<Mutex<Vec<Event>>>,
+    supervisor: JoinHandle<()>,
+    sender: Sender<Msg>,
+}
+
+enum Msg {
+    Kill,
+    StillActive,
+    Event(Event),
 }
 
 impl Cmd {
@@ -58,6 +71,14 @@ impl Cmd {
 }
 
 impl Monitor {
+    fn new(thread_handle: JoinHandle<()>, send: Sender<Msg>) -> Self {
+        Monitor {
+            event_queue: Arc::new(Mutex::new(vec![])),
+            supervisor: thread_handle,
+            sender: send,
+        }
+    }
+
     pub fn events(&self) -> Option<Vec<Event>> {
         None
     }
@@ -68,11 +89,31 @@ fn run<'main>(
     app_path: String,
 ) -> Result<Monitor, CmdErr>
 {
-    Err(CmdErr::FailToRun)
+    let subprocess = Command::new(&app_path)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|_| CmdErr::FailToRun)?;
+
+    let (send, recv) = channel();
+
+    let thread_handle = thread::spawn(move || supervise(subprocess, recv));
+
+    let monitor = Monitor::new(thread_handle, send);
+
+    Ok(monitor)
 }
 
 fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
     Err(CmdErr::FailToRun)
+}
+
+fn supervise(proc: ChildProcess, recv: Receiver<Msg>) {
+    // Process output, parsing for JSON objects, writing state to backends.
+    // Listen for signals
+    // Watch for termination
+    // Serve a monitor that can be polled
 }
 
 impl fmt::Display for CmdErr {
@@ -90,18 +131,5 @@ impl Error for CmdErr {
             CmdErr::UnknownCommand => "Unknown command.",
             CmdErr::FailToRun      => "Failed to run the application specified.",
         }
-    }
-}
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::process::Command;
-
-
-    #[test]
-    fn example1_counts_up() {
-
     }
 }
