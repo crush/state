@@ -89,6 +89,6 @@ fn main() {
 
     match commands::Cmd::execute(config, &args) {
         Ok(monitor) => println!("Success"),
-        Err(err)    => println!("Error!"),
+        Err(err)    => println!("Error! {}", err),
     }
 }
