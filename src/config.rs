@@ -4,11 +4,8 @@ use std::fmt;
 
 use serde_json::json;
 
-use crate::backends::{self, Backend};
-
 
 pub struct Config {
-    backend_configs: Vec<serde_json::value::Value>,
 }
 
 #[derive(Debug)]
@@ -26,9 +23,6 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            backend_configs: vec![
-                json!({ "filename": ".state.conf.json" }),
-            ],
         }
     }
 }

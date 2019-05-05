@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde_json::value::Value as JsonValue;
 
 use crate::config::{CfgErr, Config};
-use crate::backends::{Backend, File};
+use crate::backend;
 
 
 /// Command dispatcher.
@@ -24,6 +24,7 @@ pub enum CmdErr {
     FailToRun,
     UnexpectedOutput,
     SupervisorCrashed,
+    FailToRecord(backend::PersistErr),
 }
 
 #[derive(Debug)]
@@ -32,6 +33,7 @@ pub enum Event {
     ApplicationRestarted,
     StateRecorded,
     LogRecorded,
+    Error(CmdErr),
 }
 
 pub struct Monitor {
@@ -139,7 +141,8 @@ fn run<'main>(
 
     let last_state = "{\"state\": {\"count\": 0}}";
 
-    let thread_handle = thread::spawn(move || supervise(recv, app_path, last_state.to_string()));
+    let thread_handle = thread::spawn(
+        move || supervise(cfg, recv, app_path, last_state.to_string()));
 
     let monitor = Monitor::new(thread_handle, send);
 
@@ -168,8 +171,12 @@ fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
     Err(CmdErr::FailToRun)
 }
 
-fn supervise(chan: Channel, app_path: String, last_state: String) {
+fn supervise(cfg: Config, chan: Channel, app_path: String, last_state: String) {
     println!("In call to supervise");
+    let file_backend = backend::File {
+        filename: ".state.json".to_string(),
+    };
+
     let mut stdout = Command::new(&app_path)
         .args(&["{\"state\": { \"count\": 0 } }"])
         .stdin(Stdio::inherit())
@@ -191,8 +198,15 @@ fn supervise(chan: Channel, app_path: String, last_state: String) {
         let state: Result<JsonValue, ()> = serde_json::from_reader(&mut stdout).map_err(|_| ());
 
         match state {
-            Ok(current_state) => println!("Need to persist"),
-            Err(_)            => println!("Didn't get a state object"),
+            Ok(current_state) => {
+                if let Err(err) = file_backend.record_state(current_state) {
+                    let error = CmdErr::FailToRecord(err);
+                    chan.send(Msg::Event(Event::Error(error)));
+                } else {
+                    println!("Recorded state!");
+                }
+            },
+            Err(_) => println!("Didn't get a state object"),
         }
 
         chan.send(Msg::Event(Event::ApplicationTerminated));
@@ -207,10 +221,11 @@ fn supervise(chan: Channel, app_path: String, last_state: String) {
 impl fmt::Display for CmdErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CmdErr::UnknownCommand    => write!(f, "Unknown command."),
-            CmdErr::FailToRun         => write!(f, "Failed to run the application specified."),
-            CmdErr::UnexpectedOutput  => write!(f, "Unexpected output received from application."),
-            CmdErr::SupervisorCrashed => write!(f, "Supervisor managing application crashed."),
+            CmdErr::UnknownCommand        => write!(f, "Unknown command."),
+            CmdErr::FailToRun             => write!(f, "Failed to run the application specified."),
+            CmdErr::UnexpectedOutput      => write!(f, "Unexpected output received from application."),
+            CmdErr::SupervisorCrashed     => write!(f, "Supervisor managing application crashed."),
+            CmdErr::FailToRecord(ref pe)  => write!(f, "Fail to record: {}", pe),
         }
     }
 }
@@ -222,6 +237,7 @@ impl Error for CmdErr {
             CmdErr::FailToRun         => "Failed to run the application specified.",
             CmdErr::UnexpectedOutput  => "Unexpected output received from application.",
             CmdErr::SupervisorCrashed => "Supervisor managing application crashed.",
+            CmdErr::FailToRecord(_)   => "Failed to record state.",
         }
     }
 }
