@@ -1,3 +1,4 @@
+use std::collections::LinkedList as List;
 use std::error::Error;
 use std::fmt;
 use std::io::Read;
@@ -22,6 +23,7 @@ pub enum CmdErr {
     UnknownCommand,
     FailToRun,
     UnexpectedOutput,
+    SupervisorCrashed,
 }
 
 #[derive(Debug)]
@@ -33,7 +35,7 @@ pub enum Event {
 }
 
 pub struct Monitor {
-    event_queue: Arc<Mutex<Vec<Event>>>,
+    event_queue: Arc<Mutex<List<Event>>>,
     supervisor: JoinHandle<()>,
     to_supervisor: Channel,
 }
@@ -86,7 +88,7 @@ impl Cmd {
 impl Monitor {
     fn new(thread_handle: JoinHandle<()>, chan: Channel) -> Self {
         Monitor {
-            event_queue: Arc::new(Mutex::new(vec![])),
+            event_queue: Arc::new(Mutex::new(List::new())),
             supervisor: thread_handle,
             to_supervisor: chan,
         }
@@ -94,6 +96,18 @@ impl Monitor {
 
     pub fn events(&self) -> Option<Vec<Event>> {
         None
+    }
+
+    pub fn wait_for_termination(self) -> Result<(), CmdErr> {
+        loop {
+            match self.to_supervisor.recv() {
+                Ok(Some(Msg::Event(Event::ApplicationTerminated))) => return Ok(()),
+                Err(_) => return Err(CmdErr::SupervisorCrashed),
+                Ok(_)  => (),
+            }
+
+            thread::sleep(Duration::new(1, 0));
+        }
     }
 }
 
@@ -121,20 +135,11 @@ fn run<'main>(
 {
     println!("Starting subprocess");
 
-    let subprocess = Command::new(&app_path)
-        .args(&["{\"state\": { \"count\": 0 } }"])
-        .stdin(Stdio::inherit())
-        //.stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|err| {
-            println!("Error running app: {}", err);
-            CmdErr::FailToRun
-        })?;
-
     let (send, recv) = channel();
 
-    let thread_handle = thread::spawn(move || supervise(subprocess, recv));
+    let last_state = "{\"state\": {\"count\": 0}}";
+
+    let thread_handle = thread::spawn(move || supervise(recv, app_path, last_state.to_string()));
 
     let monitor = Monitor::new(thread_handle, send);
 
@@ -163,17 +168,36 @@ fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
     Err(CmdErr::FailToRun)
 }
 
-fn supervise(proc: ChildProcess, chan: Channel) {
-    let mut stdout = proc.stdout.unwrap();
+fn supervise(chan: Channel, app_path: String, last_state: String) {
+    println!("In call to supervise");
+    let mut stdout = Command::new(&app_path)
+        .args(&["{\"state\": { \"count\": 0 } }"])
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .unwrap()
+        .stdout
+        .unwrap();
 
-    loop {
+        /*
+        .map_err(|err| {
+            println!("Error running app: {}", err);
+            CmdErr::FailToRun
+        })?;
+        */
+
+    //loop {
         let state: Result<JsonValue, ()> = serde_json::from_reader(&mut stdout).map_err(|_| ());
 
         match state {
             Ok(current_state) => println!("Need to persist"),
             Err(_)            => println!("Didn't get a state object"),
         }
-    }
+
+        chan.send(Msg::Event(Event::ApplicationTerminated));
+
+    //}
     // Process output, parsing for JSON objects, writing state to backends.
     // Listen for signals
     // Watch for termination
@@ -183,9 +207,10 @@ fn supervise(proc: ChildProcess, chan: Channel) {
 impl fmt::Display for CmdErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CmdErr::UnknownCommand   => write!(f, "Unknown command."),
-            CmdErr::FailToRun        => write!(f, "Failed to run the application specified."),
-            CmdErr::UnexpectedOutput => write!(f, "Unexpected output received from application."),
+            CmdErr::UnknownCommand    => write!(f, "Unknown command."),
+            CmdErr::FailToRun         => write!(f, "Failed to run the application specified."),
+            CmdErr::UnexpectedOutput  => write!(f, "Unexpected output received from application."),
+            CmdErr::SupervisorCrashed => write!(f, "Supervisor managing application crashed."),
         }
     }
 }
@@ -193,9 +218,10 @@ impl fmt::Display for CmdErr {
 impl Error for CmdErr {
     fn description(&self) -> &str {
         match *self {
-            CmdErr::UnknownCommand   => "Unknown command.",
-            CmdErr::FailToRun        => "Failed to run the application specified.",
-            CmdErr::UnexpectedOutput => "Unexpected output received from application.",
+            CmdErr::UnknownCommand    => "Unknown command.",
+            CmdErr::FailToRun         => "Failed to run the application specified.",
+            CmdErr::UnexpectedOutput  => "Unexpected output received from application.",
+            CmdErr::SupervisorCrashed => "Supervisor managing application crashed.",
         }
     }
 }

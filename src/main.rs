@@ -88,7 +88,10 @@ fn main() {
     };
 
     match commands::Cmd::execute(config, &args) {
-        Ok(monitor) => println!("Success"),
+        Ok(monitor) => {
+            println!("Success");
+            monitor.wait_for_termination();
+        }
         Err(err)    => println!("Error! {}", err),
     }
 }
