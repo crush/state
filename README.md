@@ -35,7 +35,7 @@ def main():
     count = state.get('count', 0)
 
     state['count'] = count + 1
-    print(state)
+    print(json.dumps(state))
 
 
 if __name__ == '__main__':
