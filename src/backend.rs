@@ -20,16 +20,28 @@ pub struct File {
 
 impl File {
     pub fn record_state(&self, state: JsonValue) -> Result<(), PersistErr> {
-        let mut file = fs::File::create(&self.filename)
-            .map_err(|_| PersistErr::PermissionError)?;
+        let mut statefile: state::StateFile = {
+            let default = state::StateFile::new();
 
-        let record = state::StateRecord {
+            match fs::File::open(&self.filename) {
+                Err(_) =>
+                    default,
+
+                Ok(ref mut f) =>
+                    serde_json::from_reader(f).unwrap_or(default),
+            }
+        };
+
+        statefile.states.push(state::StateRecord {
             recorded_at: Utc::now(),
             config: json!({}),
             state: state,
-        };
+        });
 
-        serde_json::to_writer_pretty(&mut file, &record)
+        let mut file = fs::File::create(&self.filename)
+            .map_err(|_| PersistErr::PermissionError)?;
+
+        serde_json::to_writer_pretty(&mut file, &statefile)
             .map_err(|_| PersistErr::PermissionError)
     }
 }

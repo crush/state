@@ -48,4 +48,11 @@ pub struct StateFile {
     pub logs: Vec<LogRecord>,
 }
 
-
+impl StateFile {
+    pub fn new() -> Self {
+        StateFile {
+            states: Vec::new(),
+            logs: Vec::new(),
+        }
+    }
+}
