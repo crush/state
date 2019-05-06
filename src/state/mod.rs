@@ -1,6 +1,7 @@
 use std::default::Default;
 
 use chrono::{DateTime, Utc};
+use serde_json::json;
 use serde_json::value::Value as JsonValue;
 
 use crate::config::{CfgErr, Config};
@@ -28,7 +29,7 @@ pub enum Event {
     SignalReceived(u8),
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct StateRecord {
     pub recorded_at: DateTime<Utc>,
     pub config: JsonValue,
@@ -46,6 +47,16 @@ pub struct LogRecord {
 pub struct StateFile {
     pub states: Vec<StateRecord>,
     pub logs: Vec<LogRecord>,
+}
+
+impl StateRecord {
+    pub fn empty() -> Self {
+        StateRecord {
+            recorded_at: Utc::now(),
+            config: json!({}),
+            state: json!({}),
+        }
+    }
 }
 
 impl StateFile {

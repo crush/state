@@ -12,6 +12,7 @@ use serde_json::value::Value as JsonValue;
 
 use crate::config::{CfgErr, Config};
 use crate::backend;
+use crate::state;
 
 
 /// Command dispatcher.
@@ -139,10 +140,7 @@ fn run<'main>(
 
     let (send, recv) = channel();
 
-    let last_state = "{\"state\": {\"count\": 0}}";
-
-    let thread_handle = thread::spawn(
-        move || supervise(cfg, recv, app_path, last_state.to_string()));
+    let thread_handle = thread::spawn(move || supervise(cfg, recv, app_path));
 
     let monitor = Monitor::new(thread_handle, send);
 
@@ -171,14 +169,19 @@ fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
     Err(CmdErr::FailToRun)
 }
 
-fn supervise(cfg: Config, chan: Channel, app_path: String, last_state: String) {
+fn supervise(cfg: Config, chan: Channel, app_path: String) {
     println!("In call to supervise");
     let file_backend = backend::File {
         filename: ".state.json".to_string(),
     };
 
+    let last_state = file_backend
+        .last_state()
+        .and_then(|ref state| serde_json::to_string(state).ok())
+        .unwrap_or(serde_json::to_string(&state::StateRecord::empty()).unwrap());
+
     let mut stdout = Command::new(&app_path)
-        .args(&["{\"state\": { \"count\": 0 } }"])
+        .args(&[ last_state ])
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
