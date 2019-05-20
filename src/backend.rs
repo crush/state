@@ -1,17 +1,22 @@
 use std::error::Error;
 use std::fs;
 use std::fmt;
+use std::io::Error as IoError;
 
 use chrono::Utc;
-use serde_json::json;
-use serde_json::value::Value as JsonValue;
+use serde_json::{
+    json,
+    error::Error as EncodingError,
+    value::Value as JsonValue,
+};
 
 use crate::state;
 
 
 #[derive(Debug)]
 pub enum PersistErr {
-    PermissionError,
+    EncodeError(EncodingError),
+    IO(IoError),
 }
 
 pub struct File {
@@ -19,47 +24,49 @@ pub struct File {
 }
 
 impl File {
-    pub fn record_state(&self, state: JsonValue) -> Result<(), PersistErr> {
-        let mut statefile = self.state_file();
+    pub fn load(&self) -> Result<state::StateFile, PersistErr> {
+        let mut f = fs::File::open(&self.filename).map_err(PersistErr::IO)?;
+
+        serde_json::from_reader(&mut f).map_err(PersistErr::EncodeError)
+    }
+
+    pub fn record(&self, s: state::State) -> Result<(), PersistErr> {
+        let mut statefile = self.load()?;
 
         statefile.states.push(state::StateRecord {
             recorded_at: Utc::now(),
-            config: json!({}),
-            state: state,
+            state: s,
         });
 
-        let mut file = fs::File::create(&self.filename)
-            .map_err(|_| PersistErr::PermissionError)?;
-
-        serde_json::to_writer_pretty(&mut file, &statefile)
-            .map_err(|_| PersistErr::PermissionError)
+        self.write(&statefile)
     }
 
-    pub fn last_state(&self) -> Option<state::StateRecord> {
-        let mut statefile = self.state_file();
+    pub fn log<S>(&self, msg: S, evt: Option<state::Event>) -> Result<(), PersistErr>
+        where S: Into<String>
+    {
+        let mut statefile = self.load()?;
 
-        statefile.states.sort_by_key(|state| state.recorded_at);
+        statefile.logs.push(state::LogRecord {
+            recorded_at: Utc::now(),
+            event: evt,
+            message: msg.into(),
+        });
 
-        statefile.states.iter().last().map(Clone::clone)
+        self.write(&statefile)
     }
 
-    fn state_file(&self) -> state::StateFile {
-        let default = state::StateFile::new();
+    fn write(&self, statefile: &state::StateFile) -> Result<(), PersistErr> {
+        let mut f = fs::File::create(&self.filename).map_err(PersistErr::IO)?;
 
-        match fs::File::open(&self.filename) {
-            Err(_) =>
-                default,
-
-            Ok(ref mut f) =>
-                serde_json::from_reader(f).unwrap_or(default),
-        }
+        serde_json::to_writer_pretty(&mut f, statefile).map_err(PersistErr::EncodeError)
     }
 }
 
 impl fmt::Display for PersistErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            PersistErr::PermissionError => write!(f, "Do not have file write permissions."),
+            PersistErr::EncodeError(ref e) => write!(f, "invalid encoding: {}", e),
+            PersistErr::IO(ref e)          => write!(f, "IO error: {}", e),
         }
     }
 }
@@ -67,7 +74,8 @@ impl fmt::Display for PersistErr {
 impl Error for PersistErr {
     fn description(&self) -> &str {
         match *self {
-            PersistErr::PermissionError => "Do not have file write permissions.",
+            PersistErr::EncodeError(_) => "invalid encoding",
+            PersistErr::IO(_)          => "IO error",
         }
     }
 }

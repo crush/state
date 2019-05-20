@@ -1,11 +1,12 @@
-use std::default::Default;
+use std::fs::File;
+use std::io::Error as IoError;
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
 use serde_json::value::Value as JsonValue;
 
-use crate::config::{CfgErr, Config};
 
+pub type State = JsonValue;
 
 #[derive(Serialize)]
 #[serde(untagged)]
@@ -16,8 +17,7 @@ pub enum Supervisor {
 
 #[derive(Serialize)]
 pub struct ApplicationInput {
-    pub config: JsonValue,
-    pub state: JsonValue,
+    pub state: State,
     pub supervisor: Supervisor,
 }
 
@@ -32,14 +32,13 @@ pub enum Event {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct StateRecord {
     pub recorded_at: DateTime<Utc>,
-    pub config: JsonValue,
-    pub state: JsonValue,
+    pub state: State,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct LogRecord {
     pub recorded_at: DateTime<Utc>,
-    pub event: Event,
+    pub event: Option<Event>,
     pub message: String,
 }
 
@@ -53,17 +52,15 @@ impl StateRecord {
     pub fn empty() -> Self {
         StateRecord {
             recorded_at: Utc::now(),
-            config: json!({}),
             state: json!({}),
         }
     }
 }
 
 impl StateFile {
-    pub fn new() -> Self {
-        StateFile {
-            states: Vec::new(),
-            logs: Vec::new(),
-        }
+    pub fn latest_record(&mut self) -> Option<&StateRecord> {
+        self.states.sort_by_key(|state| state.recorded_at);
+
+        self.states.iter().last()
     }
 }

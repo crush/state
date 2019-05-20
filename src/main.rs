@@ -37,11 +37,7 @@ fn main() {
         .value_of("config")
         .unwrap_or(".state.conf.json");
 
-    let config = match Config::load(config_path) {
-        Ok(config)                    => config,
-        Err(CfgErr::PermissionDenied) => return (),
-        Err(_)                        => Config::default(),
-    };
+    let config = Config::load(config_path).expect("Failed to load configuration");
 
     match commands::Cmd::execute(config, &args) {
         Ok(monitor) => {

@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use serde_json::value::Value as JsonValue;
+use serde_json::json;
 
 use crate::config::{CfgErr, Config};
 use crate::backend;
@@ -170,18 +170,24 @@ fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
 }
 
 fn supervise(cfg: Config, chan: Channel, app_path: String) {
-    println!("In call to supervise");
     let file_backend = backend::File {
         filename: ".state.json".to_string(),
     };
 
-    let last_state = file_backend
-        .last_state()
-        .and_then(|ref state| serde_json::to_string(state).ok())
-        .unwrap_or(serde_json::to_string(&state::StateRecord::empty()).unwrap());
+    println!("Loading state file.");
+
+    let mut state_file = file_backend.load().expect("Failed to load state file");
+
+    let last_state = state_file
+        .latest_record()
+        .map(|record| record.state.clone())
+        .unwrap_or(json!({}));
+
+    let encoded_state = serde_json::to_string(&last_state)
+        .expect("Failed to deserialize last recorded state");
 
     let mut stdout = Command::new(&app_path)
-        .args(&[ last_state ])
+        .args(&[ encoded_state ])
         .stdin(Stdio::inherit())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -198,11 +204,11 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         */
 
     //loop {
-        let state: Result<JsonValue, ()> = serde_json::from_reader(&mut stdout).map_err(|_| ());
+        let state: Result<state::State, ()> = serde_json::from_reader(&mut stdout).map_err(|_| ());
 
         match state {
             Ok(current_state) => {
-                if let Err(err) = file_backend.record_state(current_state) {
+                if let Err(err) = file_backend.record(current_state) {
                     let error = CmdErr::FailToRecord(err);
                     chan.send(Msg::Event(Event::Error(error)));
                 } else {
