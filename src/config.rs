@@ -1,3 +1,4 @@
+use std::default::Default;
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
@@ -24,6 +25,18 @@ impl Config {
         let mut f = File::open(filename).map_err(CfgErr::FailToLoad)?;
 
         serde_json::from_reader(&mut f).map_err(CfgErr::Invalid)
+    }
+
+    pub fn save(&self, filename: &str) -> Result<(), CfgErr> {
+        let mut f = File::create(filename).map_err(CfgErr::FailToLoad)?;
+
+        serde_json::to_writer(&mut f, &self).map_err(CfgErr::Invalid)
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config{}
     }
 }
 

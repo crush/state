@@ -25,9 +25,10 @@ pub struct File {
 
 impl File {
     pub fn load(&self) -> Result<state::StateFile, PersistErr> {
-        let mut f = fs::File::open(&self.filename).map_err(PersistErr::IO)?;
-
-        serde_json::from_reader(&mut f).map_err(PersistErr::EncodeError)
+        fs::File::open(&self.filename)
+            .map_err(PersistErr::IO)
+            .and_then(|ref mut f| serde_json::from_reader(f).map_err(PersistErr::EncodeError))
+            .or(Ok(state::StateFile::new()))
     }
 
     pub fn record(&self, s: state::State) -> Result<(), PersistErr> {
@@ -56,6 +57,8 @@ impl File {
     }
 
     fn write(&self, statefile: &state::StateFile) -> Result<(), PersistErr> {
+        println!("Writing state file to {}", self.filename);
+
         let mut f = fs::File::create(&self.filename).map_err(PersistErr::IO)?;
 
         serde_json::to_writer_pretty(&mut f, statefile).map_err(PersistErr::EncodeError)

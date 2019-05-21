@@ -5,7 +5,6 @@ mod config;
 mod commands;
 mod state;
 
-
 use clap::{App, Arg, SubCommand};
 
 use crate::config::{CfgErr, Config};
@@ -37,13 +36,13 @@ fn main() {
         .value_of("config")
         .unwrap_or(".state.conf.json");
 
-    let config = Config::load(config_path).expect("Failed to load configuration");
+    let config = Config::load(config_path).unwrap_or(Config::default());
 
     match commands::Cmd::execute(config, &args) {
         Ok(monitor) => {
             println!("Success");
             monitor.wait_for_termination();
-        }
-        Err(err)    => println!("Error! {}", err),
+        },
+        Err(err) => println!("Error! {}", err),
     }
 }

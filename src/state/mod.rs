@@ -58,6 +58,13 @@ impl StateRecord {
 }
 
 impl StateFile {
+    pub fn new() -> Self {
+        StateFile {
+            states: vec![],
+            logs: vec![],
+        }
+    }
+
     pub fn latest_record(&mut self) -> Option<&StateRecord> {
         self.states.sort_by_key(|state| state.recorded_at);
 

@@ -25,7 +25,7 @@ pub enum CmdErr {
     FailToRun,
     UnexpectedOutput,
     SupervisorCrashed,
-    FailToRecord(backend::PersistErr),
+    PersistError(backend::PersistErr),
 }
 
 #[derive(Debug)]
@@ -176,7 +176,19 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
 
     println!("Loading state file.");
 
-    let mut state_file = file_backend.load().expect("Failed to load state file");
+    let mut state_file = match file_backend.load() {
+        Ok(statefile) => statefile,
+        Err(backend::PersistErr::IO(err)) => {
+            println!("Failed to load state file: {}", err);
+            println!("Creating a new one.");
+
+            state::StateFile::new()
+        },
+        Err(encode_err) => {
+            println!("State file is invalid: {}", encode_err);
+            return;
+        },
+    };
 
     let last_state = state_file
         .latest_record()
@@ -196,6 +208,8 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         .stdout
         .unwrap();
 
+    println!("Executing process.");
+
         /*
         .map_err(|err| {
             println!("Error running app: {}", err);
@@ -209,7 +223,8 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         match state {
             Ok(current_state) => {
                 if let Err(err) = file_backend.record(current_state) {
-                    let error = CmdErr::FailToRecord(err);
+                    let error = CmdErr::PersistError(err);
+                    println!("Error recording state: {}", error);
                     chan.send(Msg::Event(Event::Error(error)));
                 } else {
                     println!("Recorded state!");
@@ -234,7 +249,7 @@ impl fmt::Display for CmdErr {
             CmdErr::FailToRun             => write!(f, "Failed to run the application specified."),
             CmdErr::UnexpectedOutput      => write!(f, "Unexpected output received from application."),
             CmdErr::SupervisorCrashed     => write!(f, "Supervisor managing application crashed."),
-            CmdErr::FailToRecord(ref pe)  => write!(f, "Fail to record: {}", pe),
+            CmdErr::PersistError(ref pe)  => write!(f, "Fail to record: {}", pe),
         }
     }
 }
@@ -246,7 +261,7 @@ impl Error for CmdErr {
             CmdErr::FailToRun         => "Failed to run the application specified.",
             CmdErr::UnexpectedOutput  => "Unexpected output received from application.",
             CmdErr::SupervisorCrashed => "Supervisor managing application crashed.",
-            CmdErr::FailToRecord(_)   => "Failed to record state.",
+            CmdErr::PersistError(_)   => "Failed to record state.",
         }
     }
 }
