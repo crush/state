@@ -8,9 +8,7 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use serde_json::json;
-
-use crate::config::{CfgErr, Config};
+use crate::config::Config;
 use crate::backend;
 use crate::state;
 
@@ -70,13 +68,9 @@ impl Cmd {
                 Some(run_args),
                 _,
             ) => {
-                println!("Trying to get application");
-
                 let app_path = run_args
                     .value_of("application")
                     .ok_or(CmdErr::FailToRun)?;
-
-                println!("Running");
                 run(cfg, app_path.to_string())
             }
             (
@@ -136,15 +130,11 @@ fn run<'main>(
     app_path: String,
 ) -> Result<Monitor, CmdErr>
 {
-    println!("Starting subprocess");
-
     let (send, recv) = channel();
 
     let thread_handle = thread::spawn(move || supervise(cfg, recv, app_path));
 
     let monitor = Monitor::new(thread_handle, send);
-
-    println!("Created monitor");
 
     Ok(monitor)
 }
@@ -174,26 +164,16 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         filename: ".state.json".to_string(),
     };
 
-    println!("Loading state file.");
-
     let mut state_file = match file_backend.load() {
-        Ok(statefile) => statefile,
-        Err(backend::PersistErr::IO(err)) => {
-            println!("Failed to load state file: {}", err);
-            println!("Creating a new one.");
-
-            state::StateFile::new()
-        },
-        Err(encode_err) => {
-            println!("State file is invalid: {}", encode_err);
-            return;
-        },
+        Ok(statefile)                     => statefile,
+        Err(backend::PersistErr::IO(err)) => state::StateFile::new()
+        Err(encode_err)                   => return
     };
 
     let last_state = state_file
         .latest_record()
-        .map(|record| record.state.clone())
-        .unwrap_or(json!({}));
+        .map(Clone::clone)
+        .unwrap_or(state::StateRecord::empty());
 
     let encoded_state = serde_json::to_string(&last_state)
         .expect("Failed to deserialize last recorded state");
@@ -207,8 +187,6 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         .unwrap()
         .stdout
         .unwrap();
-
-    println!("Executing process.");
 
         /*
         .map_err(|err| {
@@ -224,7 +202,6 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
             Ok(current_state) => {
                 if let Err(err) = file_backend.record(current_state) {
                     let error = CmdErr::PersistError(err);
-                    println!("Error recording state: {}", error);
                     chan.send(Msg::Event(Event::Error(error)));
                 } else {
                     println!("Recorded state!");
