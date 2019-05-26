@@ -199,9 +199,16 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
     };
 
     let mut state_file = match file_backend.load() {
-        Ok(statefile)                     => statefile,
+        Ok(statefile) => statefile,
+
         Err(backend::PersistErr::IO(err)) => state::StateFile::new(),
-        Err(encode_err)                   => return,
+
+        Err(encode_err) => {
+            let error = CmdErr::PersistError(backend::PersistErr::EncodeError(encode_err));
+            chan.send(Msg::Event(Event::Error(error);
+
+            return;
+        }
     };
 
     let last_state = state_file
