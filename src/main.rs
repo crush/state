@@ -40,8 +40,10 @@ fn main() {
 
     match commands::Cmd::execute(config, &args) {
         Ok(monitor) => {
-            println!("Success");
-            monitor.wait_for_termination();
+            let events = monitor.wait_for_termination().expect("Failed to run process");
+            for event in events {
+                println!("Event: {}", event);
+            }
         },
         Err(err) => println!("Error! {}", err),
     }

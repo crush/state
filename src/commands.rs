@@ -8,6 +8,8 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use serde_json::error::Error as DecodingError;
+
 use crate::config::Config;
 use crate::backend;
 use crate::state;
@@ -21,7 +23,7 @@ pub struct Cmd;
 pub enum CmdErr {
     UnknownCommand,
     FailToRun,
-    UnexpectedOutput,
+    UnexpectedOutput(DecodingError),
     SupervisorCrashed,
     PersistError(backend::PersistErr),
 }
@@ -95,12 +97,40 @@ impl Monitor {
         None
     }
 
-    pub fn wait_for_termination(self) -> Result<(), CmdErr> {
+    pub fn wait_for_termination(self) -> Result<Vec<Event>, CmdErr> {
+        let mut events = Vec::new();
+
         loop {
             match self.to_supervisor.recv() {
-                Ok(Some(Msg::Event(Event::ApplicationTerminated))) => return Ok(()),
-                Err(_) => return Err(CmdErr::SupervisorCrashed),
-                Ok(_)  => (),
+                // Termination conditions
+                Ok(Some(Msg::Event(Event::ApplicationTerminated))) => {
+                    println!("app terminated");
+                    return Ok(events)
+                },
+
+                Ok(Some(Msg::Kill)) => {
+                    println!("kill recvd");
+                    return Ok(events)
+                },
+                
+                Err(_) => {
+                    println!("Error encountered");
+                    return Err(CmdErr::SupervisorCrashed)
+                },
+
+                // Processing conditions
+                Ok(Some(Msg::Event(event))) => {
+                    println!("storing event: {}", event);
+                    events.push(event)
+                },
+
+                Ok(Some(Msg::StillActive)) => {
+                    println!("application still active");
+                },
+
+                Ok(None) => {
+                    println!("no message received");
+                },
             }
 
             thread::sleep(Duration::new(1, 0));
@@ -166,8 +196,8 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
 
     let mut state_file = match file_backend.load() {
         Ok(statefile)                     => statefile,
-        Err(backend::PersistErr::IO(err)) => state::StateFile::new()
-        Err(encode_err)                   => return
+        Err(backend::PersistErr::IO(err)) => state::StateFile::new(),
+        Err(encode_err)                   => return,
     };
 
     let last_state = state_file
@@ -188,45 +218,51 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         .stdout
         .unwrap();
 
-        /*
-        .map_err(|err| {
-            println!("Error running app: {}", err);
-            CmdErr::FailToRun
-        })?;
-        */
+    let mut iterations = 0;
+    loop {
+        iterations += 1;
+        if iterations > 100 {
+            break;
+        }
 
-    //loop {
-        let state: Result<state::State, ()> = serde_json::from_reader(&mut stdout).map_err(|_| ());
-
-        match state {
+        match serde_json::from_reader(&mut stdout) {
             Ok(current_state) => {
                 if let Err(err) = file_backend.record(current_state) {
                     let error = CmdErr::PersistError(err);
                     chan.send(Msg::Event(Event::Error(error)));
-                } else {
-                    println!("Recorded state!");
                 }
             },
-            Err(_) => println!("Didn't get a state object"),
+            Err(err) => {
+                let error = CmdErr::UnexpectedOutput(err);
+                chan.send(Msg::Event(Event::Error(error)));
+            },
         }
+    }
+    
+    println!("Application terminated");
+    chan.send(Msg::Event(Event::ApplicationTerminated));
+}
 
-        chan.send(Msg::Event(Event::ApplicationTerminated));
-
-    //}
-    // Process output, parsing for JSON objects, writing state to backends.
-    // Listen for signals
-    // Watch for termination
-    // Serve a monitor that can be polled
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Event::ApplicationTerminated => write!(f, "application terminated"),
+            Event::ApplicationRestarted  => write!(f, "application restarted"),
+            Event::StateRecorded         => write!(f, "state recorded"),
+            Event::LogRecorded           => write!(f, "log recorded"),
+            Event::Error(ref err)        => write!(f, "error: {}", err),
+        }
+    }
 }
 
 impl fmt::Display for CmdErr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            CmdErr::UnknownCommand        => write!(f, "Unknown command."),
-            CmdErr::FailToRun             => write!(f, "Failed to run the application specified."),
-            CmdErr::UnexpectedOutput      => write!(f, "Unexpected output received from application."),
-            CmdErr::SupervisorCrashed     => write!(f, "Supervisor managing application crashed."),
-            CmdErr::PersistError(ref pe)  => write!(f, "Fail to record: {}", pe),
+            CmdErr::UnknownCommand          => write!(f, "unknown command"),
+            CmdErr::FailToRun               => write!(f, "failed to run the application specified"),
+            CmdErr::UnexpectedOutput(ref e) => write!(f, "unexpected output received from application: {}", e),
+            CmdErr::SupervisorCrashed       => write!(f, "supervisor managing application crashed"),
+            CmdErr::PersistError(ref pe)    => write!(f, "fail to record: {}", pe),
         }
     }
 }
@@ -234,11 +270,11 @@ impl fmt::Display for CmdErr {
 impl Error for CmdErr {
     fn description(&self) -> &str {
         match *self {
-            CmdErr::UnknownCommand    => "Unknown command.",
-            CmdErr::FailToRun         => "Failed to run the application specified.",
-            CmdErr::UnexpectedOutput  => "Unexpected output received from application.",
-            CmdErr::SupervisorCrashed => "Supervisor managing application crashed.",
-            CmdErr::PersistError(_)   => "Failed to record state.",
+            CmdErr::UnknownCommand      => "unknown command",
+            CmdErr::FailToRun           => "failed to run the application specified",
+            CmdErr::UnexpectedOutput(_) => "unexpected output received from application",
+            CmdErr::SupervisorCrashed   => "supervisor managing application crashed",
+            CmdErr::PersistError(_)     => "failed to record state",
         }
     }
 }
