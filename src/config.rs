@@ -12,6 +12,7 @@ use serde_json::{
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Config {
+    pub state_file: String,
 }
 
 #[derive(Debug)]
@@ -36,7 +37,9 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config{}
+        Config{
+            state_file: ".state.json".to_string(),
+        }
     }
 }
 

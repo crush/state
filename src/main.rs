@@ -9,6 +9,8 @@ use clap::{App, Arg, SubCommand};
 
 use crate::config::{CfgErr, Config};
 
+const DEFAULT_CFG_FILENAME: &str = ".state.conf.json";
+
 
 fn main() {
     let args =
@@ -34,7 +36,7 @@ fn main() {
 
     let config_path = args
         .value_of("config")
-        .unwrap_or(".state.conf.json");
+        .unwrap_or(DEFAULT_CFG_FILENAME);
 
     let config = Config::load(config_path).unwrap_or(Config::default());
 

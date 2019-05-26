@@ -195,17 +195,16 @@ fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
 
 fn supervise(cfg: Config, chan: Channel, app_path: String) {
     let file_backend = backend::File {
-        filename: ".state.json".to_string(),
+        filename: cfg.state_file.clone(),
     };
 
     let mut state_file = match file_backend.load() {
         Ok(statefile) => statefile,
 
-        Err(backend::PersistErr::IO(err)) => state::StateFile::new(),
+        Err(backend::PersistErr::IO(_)) => state::StateFile::new(),
 
         Err(encode_err) => {
-            let error = CmdErr::PersistError(backend::PersistErr::EncodeError(encode_err));
-            chan.send(Msg::Event(Event::Error(error);
+            chan.send(Msg::Event(Event::Error(CmdErr::PersistError(encode_err))));
 
             return;
         }
