@@ -8,7 +8,11 @@ use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use serde_json::error::Error as DecodingError;
+use chrono::prelude::*;
+use serde_json::error::{
+    Error as DecodingError,
+    Category as DecodingErrorCategory,
+};
 
 use crate::config::Config;
 use crate::backend;
@@ -218,25 +222,39 @@ fn supervise(cfg: Config, chan: Channel, app_path: String) {
         .stdout
         .unwrap();
 
-    let mut iterations = 0;
+    let mut last_write_encountered = Some(Utc::now());
+
     loop {
-        iterations += 1;
-        if iterations > 100 {
+        let did_timeout = last_write_encountered
+            .map(|t| Utc::now().timestamp_millis() - t.timestamp_millis() > 300)
+            .unwrap_or(false);
+
+        if did_timeout {
             break;
         }
 
         match serde_json::from_reader(&mut stdout) {
             Ok(current_state) => {
+                last_write_encountered = last_write_encountered.map(|_| Utc::now());
+
                 if let Err(err) = file_backend.record(current_state) {
                     let error = CmdErr::PersistError(err);
                     chan.send(Msg::Event(Event::Error(error)));
                 }
             },
             Err(err) => {
-                let error = CmdErr::UnexpectedOutput(err);
-                chan.send(Msg::Event(Event::Error(error)));
+                if err.classify() != DecodingErrorCategory::Eof {
+                    let error = CmdErr::UnexpectedOutput(err);
+                    chan.send(Msg::Event(Event::Error(error)));
+                }
             },
         }
+
+        let sleep_nano_sec = last_write_encountered
+            .map(|t| (Utc::now().timestamp_millis() - t.timestamp_millis()) as u32 / 20)
+            .unwrap_or(0);
+
+        thread::sleep(Duration::new(0, sleep_nano_sec));
     }
     
     println!("Application terminated");
