@@ -39,28 +39,7 @@ impl File {
             state: s,
         });
 
-        self.write(&statefile)
-    }
-
-    pub fn log<S>(&self, msg: S, evt: Option<state::Event>) -> Result<(), PersistErr>
-        where S: Into<String>
-    {
-        let mut statefile = self.load()?;
-
-        statefile.logs.push(state::LogRecord {
-            recorded_at: Utc::now(),
-            event: evt,
-            message: msg.into(),
-        });
-
-        self.write(&statefile)
-    }
-
-    fn write(&self, statefile: &state::StateFile) -> Result<(), PersistErr> {
-        println!("Writing state file to {}", self.filename);
-
         let mut f = fs::File::create(&self.filename).map_err(PersistErr::IO)?;
-
         serde_json::to_writer_pretty(&mut f, statefile).map_err(PersistErr::EncodeError)
     }
 }

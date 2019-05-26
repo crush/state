@@ -36,8 +36,6 @@ pub enum CmdErr {
 pub enum Event {
     ApplicationTerminated,
     ApplicationRestarted,
-    StateRecorded,
-    LogRecorded,
     Error(CmdErr),
 }
 
@@ -66,7 +64,7 @@ impl Cmd {
     {
         let subcmd_args = (
             args.subcommand_matches("run"),
-            args.subcommand_matches("log"),
+            args.subcommand_matches("list"),
         );
 
         match subcmd_args {
@@ -81,8 +79,8 @@ impl Cmd {
             }
             (
                 _,
-                Some(log_args),
-            ) => log(log_args),
+                Some(list_args),
+            ) => list_states(list_args),
             _ => Err(CmdErr::UnknownCommand),
         }
     }
@@ -125,6 +123,7 @@ impl Monitor {
                 // Processing conditions
                 Ok(Some(Msg::Event(event))) => {
                     println!("storing event: {}", event);
+
                     events.push(event)
                 },
 
@@ -189,7 +188,7 @@ impl Channel {
     }
 }
 
-fn log<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
+fn list_states<'main>(args: &clap::ArgMatches<'main>) -> Result<Monitor, CmdErr> {
     Err(CmdErr::FailToRun)
 }
 
@@ -272,8 +271,6 @@ impl fmt::Display for Event {
         match self {
             Event::ApplicationTerminated => write!(f, "application terminated"),
             Event::ApplicationRestarted  => write!(f, "application restarted"),
-            Event::StateRecorded         => write!(f, "state recorded"),
-            Event::LogRecorded           => write!(f, "log recorded"),
             Event::Error(ref err)        => write!(f, "error: {}", err),
         }
     }

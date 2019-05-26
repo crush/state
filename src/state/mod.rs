@@ -36,16 +36,8 @@ pub struct StateRecord {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct LogRecord {
-    pub recorded_at: DateTime<Utc>,
-    pub event: Option<Event>,
-    pub message: String,
-}
-
-#[derive(Deserialize, Serialize)]
 pub struct StateFile {
     pub states: Vec<StateRecord>,
-    pub logs: Vec<LogRecord>,
 }
 
 impl StateRecord {
@@ -61,7 +53,6 @@ impl StateFile {
     pub fn new() -> Self {
         StateFile {
             states: vec![],
-            logs: vec![],
         }
     }
 
